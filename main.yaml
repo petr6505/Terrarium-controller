@@ -1,0 +1,124 @@
+esphome:
+  name: "terrariumcontroller"
+  platform: ESP32
+  board: esp32dev
+  on_boot:
+    priority: 800  # Ensures it runs after Wi-Fi initialization
+    then:
+      - logger.log: "Setting all relays OFF on startup. Waiting 30 seconds..."
+      - switch.turn_off: pump_relay
+      - switch.turn_off: fan_relay
+      - switch.turn_off: lamp_relay
+      - switch.turn_off: extra_relay
+      - delay: 30s
+      - logger.log: "Startup delay complete. Resuming normal operations."
+
+wifi:
+  ssid: "abc"
+  password: "abc"
+  reboot_timeout: 5min  # Reboots if unable to reconnect to Wi-Fi within 5 minutes
+
+# Enable Over-The-Air updates
+ota:
+  platform: esphome
+
+# Enable API for integration with Home Assistant
+api:
+
+# Enable web server for debugging and testing
+web_server:
+  port: 80
+
+# Enable logging
+logger:
+
+# DHT sensor configuration
+sensor:
+  - platform: dht
+    pin: GPIO14
+    model: DHT11
+    temperature:
+      name: "Terrarium temperature"
+      id: terrarium_temperature
+      unit_of_measurement: "°C"
+    humidity:
+      name: "Terrarium humidity"
+      id: terrarium_humidity
+      unit_of_measurement: "%"
+    update_interval: 60s
+
+# Relay switches
+switch:
+  - platform: gpio
+    pin: GPIO27
+    id: pump_relay
+    name: "Pump Relay"
+    inverted: true
+  - platform: gpio
+    pin: GPIO32
+    id: fan_relay
+    name: "Fan Relay"
+    inverted: true
+  - platform: gpio
+    pin: GPIO33
+    id: lamp_relay
+    name: "Lamp Relay"
+    inverted: true
+  - platform: gpio
+    pin: GPIO12
+    id: extra_relay
+    name: "Extra Relay"
+    inverted: true
+
+# Automations
+binary_sensor:
+  - platform: template
+    name: "Fan State"
+    id: fan_state
+    lambda: |-
+      return id(fan_relay).state;
+
+interval:
+  - interval: 1min
+    then:
+      # Turn pump off if humidity is above 75%
+      - if:
+          condition:
+            lambda: 'return id(terrarium_humidity).state > 75;'
+          then:
+            - switch.turn_off: pump_relay
+
+      # Turn fan off if temperature is below 23°C and humidity is below 75%
+      - if:
+          condition:
+            lambda: 'return id(terrarium_temperature).state < 23 && id(terrarium_humidity).state < 75;'
+          then:
+            - switch.turn_off: fan_relay
+
+      # Turn lamp off if temperature is above 23°C
+      - if:
+          condition:
+            lambda: 'return id(terrarium_temperature).state > 23;'
+          then:
+            - switch.turn_off: lamp_relay
+
+      # Turn pump on if humidity is below 60% or (fan is on and temperature is above 24°C)
+      - if:
+          condition:
+            lambda: 'return id(terrarium_humidity).state < 60 || (id(fan_state).state && id(terrarium_temperature).state > 24);'
+          then:
+            - switch.turn_on: pump_relay
+
+      # Turn fan on if temperature is above 23°C or humidity is above 80%
+      - if:
+          condition:
+            lambda: 'return id(terrarium_temperature).state > 23 || id(terrarium_humidity).state > 80;'
+          then:
+            - switch.turn_on: fan_relay
+
+      # Turn lamp on if temperature is below 20°C
+      - if:
+          condition:
+            lambda: 'return id(terrarium_temperature).state < 20;'
+          then:
+            - switch.turn_on: lamp_relay
